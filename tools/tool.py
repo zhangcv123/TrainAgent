@@ -1,6 +1,8 @@
 import os
 import asyncio
+import signal
 import subprocess
+import time
 from collections import deque
 from datetime import datetime
 from agents import function_tool
@@ -9,6 +11,9 @@ from data_storage import registry
 from agents import Runner
 
 prompt_session = PromptSession()
+_running_processes: dict[str, subprocess.Popen] = {}
+
+
 async def async_input(prompt: str = "") -> str:
     return await prompt_session.prompt_async(prompt)
 
@@ -30,14 +35,25 @@ async def make_training_plan(user_message: str) -> str:
     result = await Runner.run(planner_agent, full)
     return result.final_output
 
-@function_tool
-def execute_python(file_path: str, conda_env: str) -> str:
-    """在指定 conda 环境中执行 Python 文件，返回进程 pid 和日志路径。"""
+def _mark_task_failed(file_path: str, message: str, logdir: str | None = None) -> None:
+    updates = {"status": "failed", "problem": message}
+    if logdir is not None:
+        updates["logdir"] = logdir
+    registry.update(file_path, **updates)
+
+
+def _start_python_process(file_path: str, conda_env: str) -> str:
+    """启动单个训练进程，不做队列判断。"""
     script_path = os.path.abspath(file_path)
     script_dir = os.path.dirname(script_path)
 
     if not os.path.isfile(script_path):
+        _mark_task_failed(file_path, f"file not found: {file_path}")
         return f"error: file not found: {file_path}"
+
+    if not conda_env:
+        _mark_task_failed(file_path, f"missing conda env: {file_path}")
+        return f"error: missing conda env: {file_path}"
 
     log_dir = os.path.abspath("logs")
     os.makedirs(log_dir, exist_ok=True)
@@ -58,15 +74,23 @@ def execute_python(file_path: str, conda_env: str) -> str:
         script_path,
     ]
 
-    proc = subprocess.Popen(
-        command,
-        cwd=script_dir,
-        stdout=log,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
-    log.flush()
-    log.close()
+    try:
+        proc = subprocess.Popen(
+            command,
+            cwd=script_dir,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            text=True,
+            start_new_session=True,
+        )
+    except OSError as exc:
+        log.flush()
+        log.close()
+        _mark_task_failed(file_path, str(exc), logfile)
+        return f"error: failed to start {file_path}: {exc}"
+    else:
+        log.flush()
+        log.close()
 
     registry.update(
         file_path,
@@ -74,6 +98,7 @@ def execute_python(file_path: str, conda_env: str) -> str:
         logdir=logfile,
         status="running",
     )
+    _running_processes[file_path] = proc
 
     return (
         f"started\n"
@@ -82,6 +107,147 @@ def execute_python(file_path: str, conda_env: str) -> str:
         f"cwd: {script_dir}\n"
         f"command: {' '.join(command)}"
     )
+
+
+def stop_running_training_tasks(timeout_seconds: float = 5.0) -> str:
+    """停止当前登记为 running 的训练任务。"""
+    running_tasks = registry.running_tasks()
+    if not running_tasks:
+        return "no running tasks"
+
+    stopped = []
+    errors = []
+    signaled_tasks = []
+    deadline = time.monotonic() + timeout_seconds
+
+    for task in running_tasks:
+        file_path = task["file_path"]
+        pid = task.get("pid")
+
+        if pid is None:
+            registry.update(
+                file_path,
+                status="stopped",
+                problem="stopped by exit",
+            )
+            stopped.append(f"{file_path}: missing pid")
+            continue
+
+        try:
+            os.killpg(int(pid), signal.SIGTERM)
+        except ProcessLookupError:
+            registry.update(file_path, pid=None, status="finished")
+            _running_processes.pop(file_path, None)
+            stopped.append(f"{file_path}: already exited")
+        except OSError as exc:
+            errors.append(f"{file_path}: failed to terminate pid {pid}: {exc}")
+        else:
+            signaled_tasks.append((task, int(pid)))
+
+    for task, pid in signaled_tasks:
+        file_path = task["file_path"]
+
+        proc = _running_processes.get(file_path)
+        remaining = max(0.0, deadline - time.monotonic())
+        if proc is not None:
+            try:
+                proc.wait(timeout=remaining)
+            except subprocess.TimeoutExpired:
+                pass
+        else:
+            while remaining > 0 and registry._pid_is_running(pid):
+                time.sleep(min(0.1, remaining))
+                remaining = max(0.0, deadline - time.monotonic())
+
+        if registry._pid_is_running(pid):
+            try:
+                os.killpg(int(pid), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            except OSError as exc:
+                errors.append(f"{file_path}: failed to kill pid {pid}: {exc}")
+
+            proc = _running_processes.get(file_path)
+            if proc is not None:
+                try:
+                    proc.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    errors.append(f"{file_path}: pid {pid} still running")
+
+        if not registry._pid_is_running(pid):
+            registry.update(
+                file_path,
+                pid=None,
+                status="stopped",
+                problem="stopped by exit",
+            )
+            _running_processes.pop(file_path, None)
+            stopped.append(f"{file_path}: stopped")
+
+    lines = []
+    if stopped:
+        lines.append("stopped tasks:")
+        lines.extend(stopped)
+    if errors:
+        lines.append("errors:")
+        lines.extend(errors)
+    return "\n".join(lines)
+
+
+@function_tool
+def stop_running_training(timeout_seconds: float = 5.0) -> str:
+    """停止当前运行的训练任务及其子进程。"""
+    return stop_running_training_tasks(timeout_seconds=timeout_seconds)
+
+
+def start_next_pending_task() -> str:
+    """自动串行调度：没有运行中任务时启动下一个 pending 任务。"""
+    running_tasks = registry.running_tasks()
+    if running_tasks:
+        running = running_tasks[0]
+        return (
+            "running task exists\n"
+            f"file_path: {running.get('file_path')}\n"
+            f"pid: {running.get('pid')}\n"
+            f"logfile: {running.get('logdir')}"
+        )
+
+    task = registry.next_pending_task()
+    if task is None:
+        return "no pending task"
+
+    return _start_python_process(
+        file_path=task["file_path"],
+        conda_env=task["conda_env"],
+    )
+
+
+@function_tool
+def start_training_queue() -> str:
+    """按自动串行策略启动训练队列。已有任务运行时不会启动新任务。"""
+    activated_count = registry.activate_registered_tasks()
+    result = start_next_pending_task()
+    return (
+        f"activated_tasks: {activated_count}\n"
+        f"{result}"
+    )
+
+
+@function_tool
+def execute_python(file_path: str, conda_env: str) -> str:
+    """在指定 conda 环境中串行执行 Python 文件，返回进程 pid 和日志路径。"""
+    running_tasks = registry.running_tasks()
+    if running_tasks:
+        running = running_tasks[0]
+        return (
+            "blocked: another task is running\n"
+            f"file_path: {running.get('file_path')}\n"
+            f"pid: {running.get('pid')}\n"
+            f"logfile: {running.get('logdir')}"
+        )
+
+    return _start_python_process(file_path, conda_env)
+
 
 @function_tool
 def read_running_task_logs(lines: int = 50) -> str:
@@ -101,14 +267,8 @@ def _tail_file(file_path: str, lines: int) -> str:
 
 
 def format_running_task_logs(lines: int = 50) -> str:
-    registry.refresh_statuses()
-    running_tasks = [
-        task for task in registry.tasks
-        if task.get("status") == "running"
-    ]
+    running_tasks = registry.running_tasks()
 
-    if not running_tasks:
-        return "当前没有运行中的任务"
 
     blocks = []
     for index, task in enumerate(running_tasks, start=1):

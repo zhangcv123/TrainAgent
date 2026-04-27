@@ -85,27 +85,28 @@ param_agent_plan = param_agent.as_tool(
 )
 
 
-executor_agent = Agent(
-    name="ExecutorAgent",
-    instructions=
-    """
-    # 你是训练任务执行助手。
-    ##你的职责：
-    1. 根据训练任务计划，依次使用 execute_python(file_path, conda_env) 执行文件。
-    2. 信息不足或有问题时，明确指出对应的问题与user对接。
-    """,
-    model=OpenAIChatCompletionsModel(model=MODEL_NAME, openai_client=client),
-    tools=[run_shell, execute_python],
-)
+# executor_agent = Agent(
+#     name="ExecutorAgent",
+#     instructions=
+#     """
+#     # 你是训练任务执行助手。
+#     ##你的职责：
+#     1. 根据训练任务计划，只启动当前需要执行的一个任务。
+#     2. 如果 execute_python 返回已有任务运行中，则向用户说明当前运行任务，不要继续启动其他任务。
+#     3. 信息不足或有问题时，明确指出对应的问题与user对接。
+#     """,
+#     model=OpenAIChatCompletionsModel(model=MODEL_NAME, openai_client=client),
+#     tools=[run_shell, execute_python],
+# )
 
-executor_training_plan = executor_agent.as_tool(
-    tool_name="executor_training_plan",
-    tool_description="根据执行计划执行训练任务",
-    parameters=ExecuteInput,
-    include_input_schema=True,
-    max_turns=5,
-    # custom_output_extractor=debug_planner,
-)
+# executor_training_plan = executor_agent.as_tool(
+#     tool_name="executor_training_plan",
+#     tool_description="根据执行计划执行训练任务",
+#     parameters=ExecuteInput,
+#     include_input_schema=True,
+#     max_turns=5,
+#     # custom_output_extractor=debug_planner,
+# )
 
 monitor_agent = Agent(
     name="MonitorAgent",

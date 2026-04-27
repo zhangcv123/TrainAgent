@@ -12,7 +12,8 @@ class TaskRegistry:
             "conda_env": conda_env,
             "logdir": None,    
             "pid": None,      
-            "status": "pending",
+            "status": "registered",
+            "problem": None,
         })
 
     def update(self, file_path: str, **kwargs):
@@ -21,6 +22,35 @@ class TaskRegistry:
                 task.update(kwargs)
                 return
         raise KeyError(f"找不到任务: {file_path}")
+
+    def running_tasks(self) -> list[dict]:
+        self.refresh_statuses()
+        return [
+            task for task in self.tasks
+            if task.get("status") == "running"
+        ]
+
+    def pending_tasks(self) -> list[dict]:
+        self.refresh_statuses()
+        return [
+            task for task in self.tasks
+            if task.get("status") == "pending"
+        ]
+
+    def next_pending_task(self) -> dict | None:
+        pending = self.pending_tasks()
+        if not pending:
+            return None
+        return pending[0]
+
+    def activate_registered_tasks(self) -> int:
+        self.refresh_statuses()
+        count = 0
+        for task in self.tasks:
+            if task.get("status") == "registered":
+                task["status"] = "pending"
+                count += 1
+        return count
 
     def refresh_statuses(self):
         for task in self.tasks:
@@ -59,6 +89,8 @@ class TaskRegistry:
                 f"pid={task['pid']}, "
                 f"logdir={task['logdir']}"
             )
+            if task.get("problem"):
+                line += f", problem={task['problem']}"
             lines.append(line)
         return "\n".join(lines)
 
