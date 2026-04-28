@@ -1,5 +1,5 @@
 import asyncio
-from wechatbot import WeChatBot
+from wechatbot import ApiError, NoContextError, WeChatBot
 from agents import Agent, OpenAIChatCompletionsModel, Runner, SQLiteSession
 from config import MODEL_NAME, client
 from tools.tool import (
@@ -62,6 +62,25 @@ session = SQLiteSession("conversation")
 bot = WeChatBot()
 wechat_targets = set()
 
+
+async def send_wechat_notice(output: str) -> None:
+    if not wechat_targets:
+        return
+
+    for user_id in list(wechat_targets):
+        try:
+            await bot.send(user_id, output)
+        except (ApiError, NoContextError) as exc:
+            wechat_targets.discard(user_id)
+            print(f"[wechat] send failed for {user_id}, removed target: {exc}")
+        except Exception as exc:
+            wechat_targets.discard(user_id)
+            print(
+                f"[wechat] unexpected send failure for {user_id}, "
+                f"removed target: {type(exc).__name__}: {exc}"
+            )
+
+
 # 微信输入loop
 @bot.on_message
 async def handle(msg):
@@ -93,9 +112,8 @@ async def log_monitor_loop(interval: int = 600, use_wechat: bool = False):
         print(output)
         print("=" * 80)
         # 微信输出
-        if use_wechat and wechat_targets:
-            for user_id in wechat_targets:
-                await bot.send(user_id, output)
+        if use_wechat:
+            await send_wechat_notice(output)
 
 async def serial_scheduler_loop(interval: int = 10, use_wechat: bool = False):
     while True:
@@ -108,9 +126,8 @@ async def serial_scheduler_loop(interval: int = 10, use_wechat: bool = False):
         print(output)
         print("=" * 80)
 
-        if use_wechat and wechat_targets:
-            for user_id in wechat_targets:
-                await bot.send(user_id, output)
+        if use_wechat:
+            await send_wechat_notice(output)
 
 async def main():
     print_box("是否启用微信远程交互？", "微信交互采用官方插件与专门的 Bot 进行交互，无安全风险。")
@@ -132,6 +149,6 @@ async def main():
         )
 
 if __name__ == "__main__":
-    MONITOR_TIMER_INTERVAL = 600  # 10分钟检查一次日志
+    MONITOR_TIMER_INTERVAL = 1800  # 30分钟检查一次日志
     SCHEDULER_TIMER_INTERVAL = 10  # 10秒检查一次是否需要启动下一个任务
     asyncio.run(main())
