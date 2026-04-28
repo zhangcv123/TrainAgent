@@ -116,3 +116,7 @@ logs/<脚本名>_<时间>.log
 ```text
 exit
 ```
+
+## 致谢
+
+感谢 [LINUX DO](https://linux.do/latest) 社区的支持。
