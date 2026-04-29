@@ -2,9 +2,9 @@ from openai import AsyncOpenAI
 from agents import set_tracing_disabled
 
 
-BASE_URL = "https://api.deepseek.com/v1"
-API_KEY = "sk-cb52f39e6c3b44deacf1f213175c40af"
-MODEL_NAME = "deepseek-v4-flash"
+BASE_URL = "https://openrouter.ai/api/v1"
+API_KEY = "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"
+MODEL_NAME = "openai/gpt-5.4-mini"
 
 # BASE_URL = ""
 # API_KEY = ""

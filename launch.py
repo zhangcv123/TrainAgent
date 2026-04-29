@@ -13,7 +13,7 @@ from tools.tool import (
     start_next_pending_task,
     stop_running_training,
 )
-from subagents.custom_agents import monitor_agent, param_agent_plan
+from subagents.custom_agents import monitor_agent, param_agent_plan, code_agent_plan
 from data_storage import registry, register_task
 
 training_agent = Agent(
@@ -27,6 +27,7 @@ training_agent = Agent(
         3. 根据用户确认的执行计划，询问是否需要确认或修改参数。如果需要，则使用 param_agent_plan 工具逐个提取每个任务的参数。
         4. 只有用户明确确认执行后，才调用 start_training_queue 工具启动自动串行训练队列。
            不要逐个启动列表内的全部任务；系统会在前一个任务结束后自动启动下一个 pending 任务。
+        5. 当用户需要修改和读取代码相关的任务时，优先调用 code_agent_plan 工具进行代码相关的操作和参数提取。
         5. 当用户询问运行状态或日志时，优先考虑调用 read_running_task_logs 工具读取当前运行任务信息和日志最后 50 行。
         6. 当用户要求停止、关闭、中断或杀掉当前训练时，优先调用 stop_running_training 工具，不要使用 run_shell 自行执行 kill 命令。
 
@@ -43,7 +44,8 @@ training_agent = Agent(
            start_training_queue,
            stop_running_training,
            param_agent_plan,
-           read_running_task_logs
+           read_running_task_logs,
+           code_agent_plan,
            ],
 )
 

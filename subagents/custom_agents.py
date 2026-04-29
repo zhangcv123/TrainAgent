@@ -1,7 +1,10 @@
+import os
+import shutil
 from agents import Agent, OpenAIChatCompletionsModel, Runner, SQLiteSession, set_tracing_disabled
 from pydantic import BaseModel, Field
-from config import MODEL_NAME, client
+from config import API_KEY, BASE_URL, MODEL_NAME, client
 from tools.tool import run_shell, execute_python
+from agents.extensions.experimental.codex import ThreadOptions, TurnOptions, codex_tool
 
 
 class ExecuteInput(BaseModel):
@@ -107,6 +110,51 @@ param_agent_plan = param_agent.as_tool(
 #     max_turns=5,
 #     # custom_output_extractor=debug_planner,
 # )
+
+
+code_agent = Agent(
+    name="Code Agent", 
+    instructions="使用 Codex 工具执行任务并回答问题",
+    tools=[
+        codex_tool(
+            working_directory=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            codex_options={
+                "codex_path_override": shutil.which("codex"),
+                "env": {
+                    "OPENAI_API_KEY": API_KEY,
+                    "OPENAI_BASE_URL": BASE_URL,
+                    "PATH": os.environ.get("PATH", ""),
+                    "https_proxy": "http://127.0.0.1:7897", 
+                    "http_proxy": "http://127.0.0.1:7897",
+                    "HTTPS_PROXY": "http://127.0.0.1:7897",
+                    "HTTP_PROXY": "http://127.0.0.1:7897",
+                }
+            },
+            sandbox_mode="workspace-write",
+            default_thread_options=ThreadOptions(
+                model="openai/gpt-5.4",
+                model_reasoning_effort="low",
+                network_access_enabled=True,
+                web_search_mode="disabled",
+                approval_policy="never",
+            ),
+            default_turn_options=TurnOptions(
+                idle_timeout_seconds=60,
+            ),
+            persist_session=True,
+        )
+    ],
+    model=OpenAIChatCompletionsModel(model=MODEL_NAME, openai_client=client),
+)
+code_agent_plan = code_agent.as_tool(
+    tool_name="code_agent_plan",
+    tool_description="使用 Codex 工具执行代码修改和参数提取相关的任务",
+    parameters=ParamInput,
+    include_input_schema=True,
+    max_turns=5,
+    # custom_output_extractor=debug_planner,
+)
+
 
 monitor_agent = Agent(
     name="MonitorAgent",
