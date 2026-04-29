@@ -2,7 +2,7 @@ import os
 import shutil
 from agents import Agent, OpenAIChatCompletionsModel, Runner, SQLiteSession, set_tracing_disabled
 from pydantic import BaseModel, Field
-from config import API_KEY, BASE_URL, MODEL_NAME, client
+from config import API_KEY_CODEX, BASE_URL_CODEX, MODEL_NAME, client
 from tools.tool import run_shell, execute_python
 from agents.extensions.experimental.codex import ThreadOptions, TurnOptions, codex_tool
 
@@ -121,8 +121,8 @@ code_agent = Agent(
             codex_options={
                 "codex_path_override": shutil.which("codex"),
                 "env": {
-                    "OPENAI_API_KEY": API_KEY,
-                    "OPENAI_BASE_URL": BASE_URL,
+                    "OPENAI_API_KEY": API_KEY_CODEX,
+                    "OPENAI_BASE_URL": BASE_URL_CODEX,
                     "PATH": os.environ.get("PATH", ""),
                     "https_proxy": "http://127.0.0.1:7897", 
                     "http_proxy": "http://127.0.0.1:7897",
@@ -132,7 +132,7 @@ code_agent = Agent(
             },
             sandbox_mode="workspace-write",
             default_thread_options=ThreadOptions(
-                model="openai/gpt-5.4",
+                model="gpt-5.4-mini",
                 model_reasoning_effort="low",
                 network_access_enabled=True,
                 web_search_mode="disabled",
