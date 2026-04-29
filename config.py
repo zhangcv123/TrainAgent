@@ -3,7 +3,7 @@ from agents import set_tracing_disabled
 
 
 BASE_URL = "https://openrouter.ai/api/v1"
-API_KEY = "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"
+API_KEY = "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"
 MODEL_NAME = "openai/gpt-5.4-mini"
 
 # BASE_URL = ""
