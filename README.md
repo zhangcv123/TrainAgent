@@ -1,6 +1,6 @@
 # Training Agent
 
-一个用于管理 Python 训练任务的多 Agent 助手。项目支持通过终端或微信远程交互收集训练脚本路径和 conda 环境，生成训练计划，确认参数后启动训练，并定时监控运行日志。
+一个用于管理 Python 训练任务的多 Agent 助手。项目支持通过终端或微信远程交互收集训练脚本路径和 conda 环境，生成训练计划，确认参数后启动训练，并定时监控运行日志。集成 Codex Agent 支持代码读取与参数修改。
 
 ## 功能
 
@@ -10,6 +10,7 @@
 - 按计划执行训练脚本。
 - 将训练输出写入 `logs/` 目录。
 - 定时读取运行中任务的日志尾部，并交给监控 Agent 判断异常。
+- 通过 Codex Agent 读取、修改训练脚本代码和提取参数。
 
 ## 演示示例
 
@@ -25,7 +26,6 @@
 
 ![微信远程监控与任务调整演示](example2.png)
 
-
 ## 项目结构
 
 ```text
@@ -34,9 +34,11 @@
 ├── data_storage.py           # 训练任务注册表
 ├── launch.py                 # 项目启动入口
 ├── subagents/
-│   └── custom_agents.py      # 规划、参数提取、执行、监控 Agent
+│   └── custom_agents.py      # 规划、参数提取、Codex 代码、监控 Agent
 ├── tools/
 │   └── tool.py               # shell、训练执行、日志读取等工具函数
+├── .codex/
+│   └── config.toml           # Codex CLI 模型与项目 trust 配置
 ├── logs/                     # 训练日志输出目录
 ├── install.sh                # 安装脚本
 └── README.md
@@ -46,6 +48,7 @@
 
 - Linux 环境。
 - Python 3.10 或更新版本。
+- Node.js 22 或更新版本（用于 Codex CLI）。
 - `conda`：用于执行用户指定的训练脚本环境。
 - 可访问配置的模型 API 服务。
 
@@ -58,7 +61,11 @@ chmod +x install.sh
 ./install.sh
 ```
 
-安装脚本会创建 `.venv` 虚拟环境，安装运行依赖，并创建 `logs/` 目录。
+安装脚本会：
+1. 创建 Python 虚拟环境（`.venv` 或 conda）并安装依赖。
+2. 检查 Node.js 版本（需 22+）并全局安装 `@openai/codex`。
+3. 生成 `.codex/config.toml`（已存在则追加当前项目 trust 配置）。
+4. 创建 `logs/` 目录。
 
 安装完成后进入环境：
 
@@ -71,12 +78,16 @@ source .venv/bin/activate
 运行前检查 `config.py`：
 
 ```python
-BASE_URL = "https://api.deepseek.com/v1"
+BASE_URL = "https://openrouter.ai/api/v1"
 API_KEY = "your-api-key"
-MODEL_NAME = "deepseek-v4-flash"
+MODEL_NAME = "deepseek/deepseek-v4-flash"
+
+BASE_URL_CODEX = "https://aihubmix.com/v1"
+API_KEY_CODEX = "your-codex-api-key"
 ```
 
-请把 `API_KEY` 改成自己的密钥。当前代码直接从 `config.py` 读取配置，没有读取环境变量。
+- `API_KEY`：主 Agent 使用的 API 密钥。
+- `API_KEY_CODEX`：Codex Agent 使用的 API 密钥（通过 AIHubMix 转发）。
 
 ## 启动
 
@@ -105,6 +116,13 @@ logs/<脚本名>_<时间>.log
 ```
 
 运行中，Agent 会定时读取日志文件的最后部分，判断是否有异常，并在微信或终端输出监控结果。
+
+需要查看或修改训练脚本的代码和参数时，可以直接询问：
+
+```text
+帮我看看 /path/to/train.py 的 batch_size 参数
+```
+
 查询运行状态或日志时，可以直接询问：
 
 ```text

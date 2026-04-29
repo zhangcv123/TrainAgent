@@ -3,3 +3,5 @@ __pycache__
 .codex
 logs/
 .plan.md
+config.py
+config.py
