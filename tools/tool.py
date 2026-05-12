@@ -1,4 +1,5 @@
 import os
+import re
 import asyncio
 import signal
 import subprocess
@@ -42,12 +43,21 @@ def _mark_task_failed(task_id: int, message: str, logdir: str | None = None) -> 
     registry.update(task_id, **updates)
 
 
+def _infer_cwd_from_command(command_text: str) -> str:
+    m = re.search(r'(/[^\s]+\.py)', command_text)
+    if m:
+        script_dir = os.path.dirname(m.group(1))
+        if os.path.isdir(script_dir):
+            return script_dir
+    return os.getcwd()
+
+
 def _start_command_process(task: dict) -> str:
     """启动单个命令进程，不做队列判断。"""
     task_id = task["task_id"]
     command_text = task["command"]
     conda_env = task.get("conda_env")
-    cwd = task.get("cwd") or os.getcwd()
+    cwd = task.get("cwd") or _infer_cwd_from_command(command_text)
     cwd = os.path.abspath(os.path.expanduser(cwd))
 
     if not os.path.isdir(cwd):
@@ -75,6 +85,9 @@ def _start_command_process(task: dict) -> str:
     else:
         command = ["bash", "-lc", command_text]
 
+    child_env = os.environ.copy()
+    child_env["PYTHONUNBUFFERED"] = "1"
+
     try:
         proc = subprocess.Popen(
             command,
@@ -83,6 +96,7 @@ def _start_command_process(task: dict) -> str:
             stderr=subprocess.STDOUT,
             text=True,
             start_new_session=True,
+            env=child_env,
         )
     except OSError as exc:
         log.flush()

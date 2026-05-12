@@ -145,6 +145,7 @@ async def serial_scheduler_loop(interval: int = 10, use_wechat: bool = False):
         if use_wechat:
             await send_wechat_notice(output)
 
+
 async def main():
     print_box("是否启用微信远程交互？", "微信交互采用官方插件与专门的 Bot 进行交互，无安全风险。")
     use_wechat = input("请选择 (y/n): ").strip().lower().startswith("y")
